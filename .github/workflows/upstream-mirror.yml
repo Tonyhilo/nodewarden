@@ -1,0 +1,45 @@
+# 上游镜像工作流（方案 B）
+# 放到 fork 仓库的：.github/workflows/upstream-mirror.yml
+#
+# 做什么：把作者仓库 main 的最新提交，强制镜像成本仓库的 upstream-mirror 分支
+# 不做什么：不 merge、不改 main、不产生合并提交 → 永远不会「分支分歧」
+#
+# Cloudflare 侧（Workers Builds）：
+#   Overview → 选中 nodewarden 这个 Worker → Settings → Build → Branch control
+#   → Production branch 选 upstream-mirror → 保存
+
+name: Upstream Mirror
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"   # 每 2 小时同步一次，可自行调整
+  workflow_dispatch:          # 允许手动触发（首次建立分支用这个）
+
+permissions:
+  contents: write             # 推送镜像分支需要写权限
+
+concurrency:
+  group: upstream-mirror
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/shuaiplus/nodewarden.git
+  UPSTREAM_BRANCH: main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout（完整历史，保证浅克隆推送不出问题）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 拉取作者仓库最新提交
+        run: |
+          git fetch --no-tags --prune "$UPSTREAM_REPO" "$UPSTREAM_BRANCH"
+          echo "上游最新提交：$(git rev-parse --short FETCH_HEAD)"
+
+      - name: 强制镜像到 upstream-mirror 分支
+        run: |
+          git push --force origin FETCH_HEAD:refs/heads/upstream-mirror
